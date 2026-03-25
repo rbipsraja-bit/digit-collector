@@ -5,70 +5,76 @@ import numpy as np
 import pandas as pd
 from sklearn.neighbors import KNeighborsClassifier
 
-st.set_page_config(page_title="Digit Trainer & Predictor")
+st.set_page_config(page_title="Smart Digit Learner")
 
+# 1. Initialize Database & States
 if 'db' not in st.session_state:
     st.session_state.db = []
+if 'mode' not in st.session_state:
+    st.session_state.mode = "collect"
 if 'current_digit' not in st.session_state:
     st.session_state.current_digit = 0
-if 'mode' not in st.session_state:
-    st.session_state.mode = "collect" # Modes: "collect" or "predict"
+if 'last_prediction' not in st.session_state:
+    st.session_state.last_prediction = None
+if 'last_pixels' not in st.session_state:
+    st.session_state.last_pixels = None
 
-# --- MODE 1: DATA COLLECTION ---
+# --- MODE 1: INITIAL COLLECTION (0-9) ---
 if st.session_state.mode == "collect":
-    st.title(f"Step 1: Draw the number {st.session_state.current_digit}")
-    st.write(f"Goal: Collect 0-9 first. Current samples: {len(st.session_state.db)}")
-
-    canvas_collect = st_canvas(
-        stroke_width=18, stroke_color="#FFF", background_color="#000",
-        height=280, width=280, drawing_mode="freedraw", key=f"c_{st.session_state.current_digit}"
-    )
-
+    st.title(f"Step 1: Teach me the number {st.session_state.current_digit}")
+    canvas = st_canvas(stroke_width=18, stroke_color="#FFF", background_color="#000", height=280, width=280, key="c1")
+    
     if st.button("Save & Next"):
-        if canvas_collect.image_data is not None:
-            img = Image.fromarray(canvas_collect.image_data.astype('uint8')).convert('L').resize((28, 28))
-            pixels = np.array(img).flatten().tolist()
-            st.session_state.db.append([st.session_state.current_digit] + pixels)
-            
+        if canvas.image_data is not None:
+            img = Image.fromarray(canvas.image_data.astype('uint8')).convert('L').resize((28, 28))
+            st.session_state.db.append([st.session_state.current_digit] + np.array(img).flatten().tolist())
             if st.session_state.current_digit < 9:
                 st.session_state.current_digit += 1
             else:
-                st.session_state.mode = "predict" # Switch to prediction mode
+                st.session_state.mode = "predict"
             st.rerun()
 
-# --- MODE 2: RANDOM DETECTION ---
+# --- MODE 2: PREDICTION & LEARNING ---
 else:
-    st.title("Step 2: Draw a Random Number!")
-    st.write("The system will now try to detect what you draw based on your previous inputs.")
-
-    canvas_predict = st_canvas(
-        stroke_width=18, stroke_color="#FFF", background_color="#000",
-        height=280, width=280, drawing_mode="freedraw", key="predict_canvas"
-    )
+    st.title("Step 2: Draw any number!")
+    st.write(f"My Brain Size: {len(st.session_state.db)} examples")
+    
+    canvas_p = st_canvas(stroke_width=18, stroke_color="#FFF", background_color="#000", height=280, width=280, key="c2")
 
     if st.button("Detect Number"):
-        if canvas_predict.image_data is not None and len(st.session_state.db) > 0:
-            # Prepare Training Data
-            data = np.array(st.session_state.db)
-            X_train = data[:, 1:] # Pixels
-            y_train = data[:, 0]  # Labels
-            
-            # Simple AI Model
-            model = KNeighborsClassifier(n_neighbors=1)
-            model.fit(X_train, y_train)
-            
-            # Process Current Drawing
-            img = Image.fromarray(canvas_predict.image_data.astype('uint8')).convert('L').resize((28, 28))
-            current_pixels = np.array(img).flatten().reshape(1, -1)
-            
-            # Predict
-            prediction = model.predict(current_pixels)
-            st.header(f"Detected Number: {int(prediction[0])}")
-            st.confetti()
-        else:
-            st.warning("Draw something first!")
+        # Train AI on current database
+        data = np.array(st.session_state.db)
+        model = KNeighborsClassifier(n_neighbors=1).fit(data[:, 1:], data[:, 0])
+        
+        # Process current drawing
+        img = Image.fromarray(canvas_p.image_data.astype('uint8')).convert('L').resize((28, 28))
+        st.session_state.last_pixels = np.array(img).flatten().tolist()
+        st.session_state.last_prediction = int(model.predict([st.session_state.last_pixels])[0])
 
-    if st.button("Back to Collecting"):
-        st.session_state.mode = "collect"
-        st.session_state.current_digit = 0
-        st.rerun()
+    # Show prediction and ask for feedback
+    if st.session_state.last_prediction is not None:
+        st.subheader(f"I think that's a: {st.session_state.last_prediction}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Correct"):
+                # If correct, add it to DB to reinforce learning
+                st.session_state.db.append([st.session_state.last_prediction] + st.session_state.last_pixels)
+                st.success("Awesome! I've learned this style.")
+                st.session_state.last_prediction = None
+                st.rerun()
+        
+        with col2:
+            correct_label = st.number_input("❌ No, it's actually:", 0, 9)
+            if st.button("Teach Me"):
+                # If wrong, add it to DB with the CORRECT label
+                st.session_state.db.append([correct_label] + st.session_state.last_pixels)
+                st.info(f"Fixed! I now know this is a {correct_label}.")
+                st.session_state.last_prediction = None
+                st.rerun()
+
+# Download Button at the bottom
+if st.session_state.db:
+    st.divider()
+    csv = pd.DataFrame(st.session_state.db).to_csv(index=False).encode('utf-8')
+    st.download_button("Download Brain (CSV)", csv, "my_digit_model.csv")
