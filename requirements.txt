@@ -1,4 +1,3 @@
-text
 streamlit
 streamlit-drawable-canvas
 Pillow
