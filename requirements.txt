@@ -3,5 +3,4 @@ streamlit
 streamlit-drawable-canvas
 Pillow
 numpy
-gspread
-oauth2client
+pandas
